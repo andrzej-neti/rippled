@@ -128,7 +128,6 @@ test.nodestore > test.unit_test
 test.nodestore > xrpl.basics
 test.nodestore > xrpld.core
 test.nodestore > xrpl.nodestore
-test.nodestore > xrpl.protocol
 test.nodestore > xrpl.rdb
 test.overlay > test.jtx
 test.overlay > test.unit_test
