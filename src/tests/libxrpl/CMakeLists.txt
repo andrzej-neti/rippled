@@ -43,6 +43,10 @@ xrpl_add_test(protocol_autogen)
 target_link_libraries(xrpl.test.protocol_autogen PRIVATE xrpl.imports.test)
 add_dependencies(xrpl.tests xrpl.test.protocol_autogen)
 
+xrpl_add_test(nodestore)
+target_link_libraries(xrpl.test.nodestore PRIVATE xrpl.imports.test)
+add_dependencies(xrpl.tests xrpl.test.nodestore)
+
 # Network unit tests are currently not supported on Windows
 if(NOT WIN32)
     xrpl_add_test(net)
