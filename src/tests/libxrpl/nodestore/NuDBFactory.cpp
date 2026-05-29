@@ -2,16 +2,20 @@
 #include <xrpl/basics/ByteUtilities.h>
 #include <xrpl/beast/utility/Journal.h>
 #include <xrpl/beast/utility/temp_dir.h>
+#include <xrpl/beast/xor_shift_engine.h>
 #include <xrpl/nodestore/DummyScheduler.h>
 #include <xrpl/nodestore/Manager.h>
+#include <xrpl/nodestore/NodeObject.h>
 
 #include <gtest/gtest.h>
 #include <helpers/CaptureSink.h>
 #include <helpers/TestSink.h>
 #include <nodestore/TestBase.h>
+#include <nudb/context.hpp>
 
 #include <cstddef>
 #include <exception>
+#include <filesystem>
 #include <memory>
 #include <string>
 #include <utility>
@@ -287,6 +291,7 @@ TEST(NuDBFactory, DataPersistence)
         }
     }
 }
+
 TEST(NuDBFactory, missing_path_throws)
 {
     DummyScheduler scheduler;
