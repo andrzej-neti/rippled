@@ -287,5 +287,126 @@ TEST(NuDBFactory, DataPersistence)
         }
     }
 }
+TEST(NuDBFactory, missing_path_throws)
+{
+    DummyScheduler scheduler;
+    beast::Journal const journal(TestSink::instance());
+    // "path" is present but empty -> backend constructor rejects it.
+    auto const params = makeSection("");
+    EXPECT_THROW(
+        Manager::instance().makeBackend(params, megabytes(4), scheduler, journal), std::exception);
+}
+
+TEST(NuDBFactory, getters_and_lifecycle)
+{
+    beast::TempDir const tempDir;
+    DummyScheduler scheduler;
+    beast::Journal const journal(TestSink::instance());
+    auto const params = makeSection(tempDir.path());
+
+    auto backend = Manager::instance().makeBackend(params, megabytes(4), scheduler, journal);
+    ASSERT_TRUE(backend);
+    EXPECT_FALSE(backend->isOpen());
+    EXPECT_EQ(backend->getName(), tempDir.path());
+    auto const blockSize = backend->getBlockSize();
+    ASSERT_TRUE(blockSize.has_value());
+    // NOLINTNEXTLINE(bugprone-unchecked-optional-access) guarded by ASSERT_TRUE above
+    EXPECT_EQ(*blockSize, 4096u);
+    EXPECT_EQ(backend->fdRequired(), 3);
+
+    backend->open();
+    EXPECT_TRUE(backend->isOpen());
+    EXPECT_EQ(backend->getWriteLoad(), 0);
+    backend->close();
+    EXPECT_FALSE(backend->isOpen());
+}
+
+TEST(NuDBFactory, store_fetch_foreach_verify)
+{
+    beast::TempDir const tempDir;
+    DummyScheduler scheduler;
+    beast::Journal const journal(TestSink::instance());
+    auto const params = makeSection(tempDir.path());
+
+    auto backend = Manager::instance().makeBackend(params, megabytes(4), scheduler, journal);
+    backend->open();
+
+    beast::xor_shift_engine rng(4242);
+    auto const batch = createPredictableBatch(200, rng());
+    storeBatch(*backend, batch);
+
+    {
+        SCOPED_TRACE("round trip");
+        auto const copy = fetchCopyOfBatch(*backend, batch);
+        EXPECT_TRUE(areBatchesEqual(batch, copy));
+    }
+
+    // forEach visits every stored object (closes + visits + reopens internally).
+    std::size_t count = 0;
+    backend->forEach([&count](std::shared_ptr<NodeObject> obj) {
+        EXPECT_NE(obj, nullptr);
+        ++count;
+    });
+    EXPECT_EQ(count, batch.size());
+
+    // verify() runs NuDB's consistency check without throwing.
+    EXPECT_NO_THROW(backend->verify());
+
+    // A key that was never stored reports NotFound.
+    auto const absent = createPredictableBatch(8, rng());
+    fetchMissing(*backend, absent);
+
+    backend->close();
+}
+
+TEST(NuDBFactory, context_constructor)
+{
+    // Exercises the second NuDBBackend constructor / factory overload that takes
+    // an external nudb::context (used by the rotating database).
+    auto* factory = Manager::instance().find("nudb");
+    ASSERT_NE(factory, nullptr);
+
+    beast::TempDir const tempDir;
+    DummyScheduler scheduler;
+    beast::Journal const journal(TestSink::instance());
+    auto const params = makeSection(tempDir.path());
+
+    nudb::context ctx;
+    ctx.start();
+
+    auto backend = factory->createInstance(
+        NodeObject::kKeyBytes, params, megabytes(4), scheduler, ctx, journal);
+    ASSERT_TRUE(backend);
+    backend->open();
+
+    beast::xor_shift_engine rng(99);
+    auto const batch = createPredictableBatch(50, rng());
+    storeBatch(*backend, batch);
+    auto const copy = fetchCopyOfBatch(*backend, batch);
+    EXPECT_TRUE(areBatchesEqual(batch, copy));
+
+    backend->close();
+    backend.reset();  // release the db before tearing down its context
+    ctx.stop_all();
+}
+
+TEST(NuDBFactory, set_delete_path_removes_files)
+{
+    beast::TempDir const tempDir;
+    DummyScheduler scheduler;
+    beast::Journal const journal(TestSink::instance());
+    auto const params = makeSection(tempDir.path());
+
+    auto backend = Manager::instance().makeBackend(params, megabytes(4), scheduler, journal);
+    backend->open();
+    beast::xor_shift_engine rng(7);
+    auto const batch = createPredictableBatch(8, rng());
+    storeBatch(*backend, batch);
+
+    backend->setDeletePath();
+    backend->close();
+
+    EXPECT_FALSE(std::filesystem::exists(tempDir.path()));
+}
 
 }  // namespace xrpl::NodeStore
